@@ -87,6 +87,7 @@ type regolancer struct {
 	statFilename  string
 	routeFound    bool
 	invoiceCache  map[int64]*lnrpc.AddInvoiceResponse
+	mcState       map[uint64]string
 }
 
 func loadConfig() {
@@ -404,6 +405,7 @@ func main() {
 		chanCache:    map[uint64]*lnrpc.ChannelEdge{},
 		channelPairs: map[string][2]*lnrpc.Channel{},
 		failureCache: map[string]failedRoute{},
+		mcState:      map[uint64]string{},
 		statFilename: params.StatFilename,
 	}
 	r.lnClient = lnrpc.NewLightningClient(conn)

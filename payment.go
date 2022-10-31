@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"os"
@@ -36,6 +38,35 @@ func (r *regolancer) createInvoice(ctx context.Context, amount int64) (result *l
 
 func (r *regolancer) invalidateInvoice(amount int64) {
 	delete(r.invoiceCache, amount)
+}
+
+func (r *regolancer) addToMC(ctx context.Context, chanId uint64, node1pk, node2pk string) {
+	mc, err := r.routerClient.QueryMissionControl(ctx, &routerrpc.QueryMissionControlRequest{})
+	if err != nil {
+		logErrorF("MC query error: %s", err)
+		return
+	}
+	pk1bytes, err := hex.DecodeString(node1pk)
+	if err != nil {
+		logErrorF("Error decoding node1 pk: %s", err)
+		return
+	}
+	pk2bytes, err := hex.DecodeString(node2pk)
+	if err != nil {
+		logErrorF("Error decoding node1 pk: %s", err)
+		return
+	}
+	for _, p := range mc.Pairs {
+		if bytes.Equal(p.NodeFrom, pk1bytes) && bytes.Equal(p.NodeTo, pk2bytes) {
+			history := p.History
+			if s, ok := r.mcState[chanId]; ok {
+				log.Printf("Known failed channel %d hit. Previous MC state:\n%s\nCurrent MC state:\n%s", chanId, s, history.String())
+				os.Exit(2)
+			}
+			r.mcState[chanId] = history.String()
+			log.Printf("Added MC info for chanid %d: %s", chanId, history.String())
+		}
+	}
 }
 
 func (r *regolancer) pay(ctx context.Context, amount int64, minAmount int64,
@@ -97,6 +128,7 @@ func (r *regolancer) pay(ctx context.Context, amount int64, minAmount int64,
 		}
 		log.Printf("%s %s ⇒ %s", faintWhiteColor(result.Failure.Code.String()),
 			cyanColor(node1name), cyanColor(node2name))
+		r.addToMC(ctx, result.Failure.ChannelUpdate.ChanId, node1.Node.PubKey, node2.Node.PubKey)
 		if probeSteps > 0 && int(result.Failure.FailureSourceIndex) == len(route.Hops)-2 &&
 			result.Failure.Code == lnrpc.Failure_TEMPORARY_CHANNEL_FAILURE {
 			fmt.Println("Probing route...")
